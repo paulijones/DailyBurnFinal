@@ -250,7 +250,7 @@ func getPecentageinZones(ses string) zonePercent {
 
 func GetSessionsNewestFirst(numResp int) []fullWorkout {
 	allWorkouts := make([]fullWorkout, 0)
-	for i := len(sessions) - 1; i >= len(sessions)-(numResp+1); i-- {
+	for i := len(sessions) - 1; i > len(sessions)-(numResp+1); i-- {
 		sesid := strconv.Itoa(i)
 		hrinfo := HRMbySession(sesid)
 		zones := getPecentageinZones(sesid)
