@@ -15,7 +15,7 @@ There are also a few print statments that tell you what step it is currently at 
 
 returns the min/max/avg bpm for the specific session
 
-`get localhost:12345/sessions/AllHRM`
+`get localhost:12345/session/AllHRM`
 
 returns the min/max/avg bpm for all sessions in json.
 I did not implement pagination/result limiting, so it will be a big response.
