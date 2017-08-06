@@ -52,6 +52,23 @@ type HRdata struct {
 	Average int `json:"average,omitempty"`
 }
 
+type zonePercent struct {
+	Time1 int `json:"Time in Seconds Zone 1,omitempty"`
+	Time2 int `json:"Time in Seconds Zone 2,omitempty"`
+	Time3 int `json:"Time in Seconds Zone 3,omitempty"`
+	Time4 int `json:"Time in Seconds Zone 4,omitempty"`
+	Zone1 int `json:"Percent Zone 1,omitempty"`
+	Zone2 int `json:"Percent Zone 2,omitempty"`
+	Zone3 int `json:"Percent Zone 3,omitempty"`
+	Zone4 int `json:"Percent Zone 4,omitempty"`
+}
+
+type fullWorkout struct {
+	HR   HRdata
+	Zone zonePercent
+}
+
+//defining globals
 var people []Person
 var sessions []Session
 var sesmap map[int]int
@@ -104,7 +121,7 @@ func preprocessSessions() {
 		}
 		sesid, err := strconv.Atoi(record[0])
 		if err != nil {
-			fmt.Println("NaN, skipping first line in file")
+			//fmt.Println("NaN, skipping first line in file")
 		} else {
 			uid, _ := strconv.Atoi(record[1])
 			dur, _ := strconv.Atoi(record[3])
@@ -134,7 +151,7 @@ func preprocessData() {
 		}
 		sesid, err := strconv.Atoi(record[0])
 		if err != nil {
-			fmt.Println("NaN, skipping first line of file")
+			//fmt.Println("NaN, skipping first line of file")
 		} else {
 			bpm, _ := strconv.Atoi(record[1])
 			start := record[2]
@@ -170,9 +187,78 @@ func HRMbySession(id string) HRdata {
 		}
 		sum += sessions[sesidnum].Datapoints[i].BPM
 	}
-
-	hrstruct := HRdata{Min: min, Max: max, Average: sum / len(sessions[sesidnum].Datapoints)}
+	var hrstruct HRdata
+	if len(sessions[sesidnum].Datapoints) == 0 {
+		hrstruct = HRdata{Min: min, Max: max, Average: sum}
+	} else {
+		hrstruct = HRdata{Min: min, Max: max, Average: sum / len(sessions[sesidnum].Datapoints)}
+	}
 	return hrstruct
+}
+
+func getHRzone(p Person, bpm int) int {
+	if p.HR1L <= bpm && p.HR1U >= bpm {
+		return 1
+	} else if p.HR2L <= bpm && p.HR2U >= bpm {
+		return 2
+	} else if p.HR3L <= bpm && p.HR3U >= bpm {
+		return 3
+	} else if p.HR4L <= bpm && p.HR4U >= bpm {
+		return 4
+	} else {
+		//fmt.Println("Outside of heart rate zones, something is wrong")
+		//fmt.Println("bpm is", bpm, "and person id is", p.ID)
+		return -1
+	}
+}
+
+func getPecentageinZones(ses string) zonePercent {
+	sesid, _ := strconv.Atoi(ses)
+	s := sessions[sesid]
+	time1, time2, time3, time4 := 0, 0, 0, 0
+	curper := people[sesmap[s.ID]]
+	for i := 0; i < len(s.Datapoints); i++ {
+		//fmt.Println("i is", i, "and duration is", s.Datapoints[i].Duration)
+		zone := getHRzone(curper, s.Datapoints[i].BPM)
+		//fmt.Println("zone is", zone)
+		if zone == 1 {
+			time1 += s.Datapoints[i].Duration
+		} else if zone == 2 {
+			time2 += s.Datapoints[i].Duration
+		} else if zone == 3 {
+			time3 += s.Datapoints[i].Duration
+		} else if zone == 4 {
+			time4 += s.Datapoints[i].Duration
+		} else {
+			//fmt.Println("outside of hrzones, something is wrong")
+		}
+	}
+	//fmt.Println("zone durations are", time1, time2, time3, time4)
+	//fmt.Println("total durration is", s.Duration)
+	if s.Duration == 0 {
+		perzones := zonePercent{0, 0, 0, 0, 0, 0, 0, 0}
+		return perzones
+	} else {
+		zone1 := ((time1 * 100) / s.Duration)
+		zone2 := ((time2 * 100) / s.Duration)
+		zone3 := ((time3 * 100) / s.Duration)
+		zone4 := ((time4 * 100) / s.Duration)
+		perzones := zonePercent{time1, time2, time3, time4, zone1, zone2, zone3, zone4}
+		return perzones
+	}
+}
+
+func GetSessionsNewestFirst(numResp int) []fullWorkout {
+	allWorkouts := make([]fullWorkout, 0)
+	for i := len(sessions) - 1; i >= len(sessions)-(numResp+1); i-- {
+		sesid := strconv.Itoa(i)
+		hrinfo := HRMbySession(sesid)
+		zones := getPecentageinZones(sesid)
+		thisWorkout := fullWorkout{hrinfo, zones}
+		//fmt.Println(thisWorkout.HR.Average)
+		allWorkouts = append(allWorkouts, thisWorkout)
+	}
+	return allWorkouts
 }
 
 //Done with fuctions
@@ -210,6 +296,19 @@ func GetSessionHRM(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(hrstruct)
 }
 
+func GetSessionZones(w http.ResponseWriter, req *http.Request) {
+	params := mux.Vars(req)
+	zones := getPecentageinZones(params["id"])
+	json.NewEncoder(w).Encode(zones)
+}
+
+func GetSessionsNewest(w http.ResponseWriter, req *http.Request) {
+	params := mux.Vars(req)
+	num, _ := strconv.Atoi(params["num"])
+	allSesInfo := GetSessionsNewestFirst(num)
+	json.NewEncoder(w).Encode(allSesInfo)
+}
+
 func main() {
 	start := time.Now()
 	sesmap = make(map[int]int)
@@ -228,6 +327,8 @@ func main() {
 	//router.HandleFunc("/people/{id}/AllHRM", GetPersonHRM).Methods("GET")
 	router.HandleFunc("/session/{id}/AllHRM", GetSessionHRM).Methods("GET")
 	router.HandleFunc("/session/AllHRM", GetAllHRM).Methods("GET")
+	router.HandleFunc("/session/{id}/zones", GetSessionZones).Methods("GET")
+	router.HandleFunc("/session/HRZones/newest/{num}", GetSessionsNewest).Methods("GET")
 	log.Fatal(http.ListenAndServe(":12345", router))
 	return
 }
